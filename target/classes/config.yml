@@ -1,0 +1,15 @@
+# RMCMaterialLoadingPlugin 配置文件
+# 请修改为您自己的材质包URL和HASH值
+
+# 材质包URL
+resource-pack-url: "https://example.com/your-resource-pack.zip"
+
+# 材质包HASH (留空则不使用HASH校验)
+resource-pack-hash: ""
+
+# 消息设置
+messages:
+  prefix: "&6[RMC] &r"
+  loaded: "&a材质包加载成功！"
+  declined: "&c您拒绝了服务器材质包，部分功能可能无法正常显示。"
+  failed: "&c材质包下载失败，请稍后再试。" 
