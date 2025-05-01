@@ -40,6 +40,8 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
     private String nmsVersion;
     // 记录玩家的材质包加载状态
     private final Map<UUID, Boolean> playerResourcePackStatus = new HashMap<>();
+    // 记录玩家是否已经做出选择
+    private final Map<UUID, Boolean> playerMadeChoice = new HashMap<>();
     
     // 插件实例的静态引用
     private static RMCMaterialLoadingPlugin instance;
@@ -330,25 +332,35 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
         giveClickableBook(player);
     }
     
-    private void giveClickableBook(Player player) {
+    /**
+     * 给玩家一本可点击的书本来选择是否加载材质包
+     * @param player 目标玩家
+     */
+    public void giveClickableBook(Player player) {
         try {
             // 先清除玩家背包中所有书本
             clearAllBooks(player);
             
-            // 使用工具类创建带点击功能的书本
-            ItemStack book = BookUtils.createClickableBook(player);
+            // 尝试直接通过数据包打开书籍界面
+            boolean success = BookUtils.directOpenBook(player);
             
-            // 确保第7格（索引6）是空的
-            player.getInventory().setItem(6, null);
-            
-            // 将书本放在第7格（索引6）
-            player.getInventory().setItem(6, book);
-            
-            // 更新玩家物品栏
-            player.updateInventory();
-            
-            // 使用工具类打开书本
-            BookUtils.openBook(player, book);
+            // 如果直接打开书籍失败，才尝试通过物品栏放置书籍
+            if (!success) {
+                // 使用工具类创建带点击功能的书本
+                ItemStack book = BookUtils.createClickableBook(player);
+                
+                // 确保第7格（索引6）是空的
+                player.getInventory().setItem(6, null);
+                
+                // 将书本放在第7格（索引6）
+                player.getInventory().setItem(6, book);
+                
+                // 更新玩家物品栏
+                player.updateInventory();
+                
+                // 使用工具类打开书本
+                BookUtils.openBook(player, book);
+            }
             
             // 注册命令监听器
             registerPackCommands(player);
@@ -445,5 +457,23 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
         // 添加时间戳参数强制更新
         String separator = url.contains("?") ? "&" : "?";
         return url + separator + "v=" + System.currentTimeMillis();
+    }
+
+    /**
+     * 设置玩家是否已经做出了材质包选择
+     * @param playerId 玩家UUID
+     * @param madeChoice 是否已做出选择
+     */
+    public void setPlayerMadeChoice(UUID playerId, boolean madeChoice) {
+        playerMadeChoice.put(playerId, madeChoice);
+    }
+    
+    /**
+     * 检查玩家是否已经做出了材质包选择
+     * @param playerId 玩家UUID
+     * @return 是否已做出选择
+     */
+    public boolean hasPlayerMadeChoice(UUID playerId) {
+        return playerMadeChoice.getOrDefault(playerId, false);
     }
 } 

@@ -167,6 +167,206 @@ public class BookUtils {
         }
     }
     
+    /**
+     * 直接通过数据包打开书籍界面（不需要在物品栏放置书籍）
+     * @param player 目标玩家
+     * @return 是否成功打开书籍界面
+     */
+    public static boolean directOpenBook(Player player) {
+        try {
+            // 服务器版本
+            String version = getVersion();
+            
+            // 创建带点击功能的书本
+            ItemStack book = createClickableBook(player);
+            
+            // 1.8版本没有直接打开书本的数据包，使用替代方法
+            if (version.startsWith("v1_8")) {
+                // 获取CraftPlayer
+                Class<?> craftPlayerClass = Class.forName("org.bukkit.craftbukkit." + version + ".entity.CraftPlayer");
+                Object craftPlayer = craftPlayerClass.cast(player);
+                
+                // 保存玩家原来的物品
+                ItemStack oldItem = player.getItemInHand();
+                
+                // 临时设置书本到玩家手中
+                player.setItemInHand(book);
+                
+                // 尝试调用openBook方法
+                boolean bookOpened = false;
+                try {
+                    Method openBook = craftPlayerClass.getMethod("openBook", ItemStack.class);
+                    openBook.invoke(craftPlayer, book);
+                    bookOpened = true;
+                } catch (NoSuchMethodException e) {
+                    try {
+                        // 1.8可能有其他方式打开书本，尝试反射调用各种可能的方法
+                        Method openBook = craftPlayerClass.getDeclaredMethod("openBook", ItemStack.class);
+                        openBook.setAccessible(true);
+                        openBook.invoke(craftPlayer, book);
+                        bookOpened = true;
+                    } catch (Exception ex) {
+                        // 获取玩家对应的NMS实体
+                        Method getHandleMethod = craftPlayerClass.getMethod("getHandle");
+                        Object entityPlayer = getHandleMethod.invoke(craftPlayer);
+                        
+                        // 尝试发送自定义数据包
+                        try {
+                            // 在1.8中，使用MC|BOpen自定义数据包来打开书本
+                            Class<?> packetPlayOutCustomPayloadClass = Class.forName("net.minecraft.server." + version + ".PacketPlayOutCustomPayload");
+                            
+                            // 构造ByteBuf数据
+                            Class<?> packetDataSerializerClass = Class.forName("net.minecraft.server." + version + ".PacketDataSerializer");
+                            Class<?> byteBufClass = Class.forName("io.netty.buffer.ByteBuf");
+                            Class<?> unpooledClass = Class.forName("io.netty.buffer.Unpooled");
+                            Method wrappedBufferMethod = unpooledClass.getMethod("wrappedBuffer", byte[].class);
+                            Object byteBuf = wrappedBufferMethod.invoke(null, new byte[]{0});
+                            
+                            Constructor<?> packetDataSerializerConstructor = packetDataSerializerClass.getConstructor(byteBufClass);
+                            Object packetDataSerializer = packetDataSerializerConstructor.newInstance(byteBuf);
+                            
+                            // 创建一个打开书本的自定义数据包
+                            Constructor<?> packetCtor = packetPlayOutCustomPayloadClass.getConstructor(String.class, packetDataSerializerClass);
+                            Object packet = packetCtor.newInstance("MC|BOpen", packetDataSerializer);
+                            
+                            // 发送数据包
+                            Class<?> playerConnectionClass = Class.forName("net.minecraft.server." + version + ".PlayerConnection");
+                            Field playerConnectionField = entityPlayer.getClass().getField("playerConnection");
+                            Object playerConnection = playerConnectionField.get(entityPlayer);
+                            Method sendPacketMethod = playerConnectionClass.getMethod("sendPacket", Class.forName("net.minecraft.server." + version + ".Packet"));
+                            sendPacketMethod.invoke(playerConnection, packet);
+                            
+                            bookOpened = true;
+                        } catch (Exception exc) {
+                            // 记录错误但继续执行
+                            exc.printStackTrace();
+                        }
+                    }
+                }
+                
+                // 恢复玩家原来的物品
+                if (bookOpened) {
+                    // 延迟一下再恢复物品，确保书本能正常打开
+                    Bukkit.getScheduler().runTaskLater(
+                        RMCMaterialLoadingPlugin.getInstance(), 
+                        () -> {
+                            player.setItemInHand(oldItem);
+                            player.updateInventory();
+                        }, 
+                        2L
+                    );
+                } else {
+                    // 如果书本没有成功打开，直接恢复
+                    player.setItemInHand(oldItem);
+                    player.updateInventory();
+                }
+                
+                return bookOpened;
+            } else {
+                // 非1.8版本使用原方法
+                try {
+                    // 获取NMS物品栈
+                    Class<?> craftItemStackClass = Class.forName("org.bukkit.craftbukkit." + version + ".inventory.CraftItemStack");
+                    Method asNMSCopy = craftItemStackClass.getMethod("asNMSCopy", ItemStack.class);
+                    Object nmsBook = asNMSCopy.invoke(null, book);
+                    
+                    // 获取玩家对应的NMS实体
+                    Class<?> craftPlayerClass = Class.forName("org.bukkit.craftbukkit." + version + ".entity.CraftPlayer");
+                    Object craftPlayer = craftPlayerClass.cast(player);
+                    Method getHandleMethod = craftPlayerClass.getMethod("getHandle");
+                    Object entityPlayer = getHandleMethod.invoke(craftPlayer);
+                    
+                    // 创建打开书籍界面的数据包
+                    Class<?> packetPlayOutOpenBookClass = Class.forName("net.minecraft.server." + version + ".PacketPlayOutOpenBook");
+                    
+                    // 尝试获取构造函数和发送数据包
+                    boolean packetSent = false;
+                    
+                    // 尝试新版本方法 (1.14+)
+                    try {
+                        // PacketPlayOutOpenBook(EnumHand) 构造方法
+                        Class<?> enumHandClass = Class.forName("net.minecraft.server." + version + ".EnumHand");
+                        Object mainHand = enumHandClass.getField("MAIN_HAND").get(null);
+                        
+                        Constructor<?> packetCtor = packetPlayOutOpenBookClass.getConstructor(enumHandClass);
+                        Object packet = packetCtor.newInstance(mainHand);
+                        
+                        // 设置玩家手持物品为书本（暂时替换）
+                        Method setItemInHandMethod = entityPlayer.getClass().getMethod("a", enumHandClass, nmsBook.getClass());
+                        Object originalItem = entityPlayer.getClass().getMethod("b", enumHandClass).invoke(entityPlayer, mainHand);
+                        setItemInHandMethod.invoke(entityPlayer, mainHand, nmsBook);
+                        
+                        // 发送数据包
+                        Class<?> playerConnectionClass = Class.forName("net.minecraft.server." + version + ".PlayerConnection");
+                        Field playerConnectionField = entityPlayer.getClass().getField("playerConnection");
+                        Object playerConnection = playerConnectionField.get(entityPlayer);
+                        Method sendPacketMethod = playerConnectionClass.getMethod("sendPacket", Class.forName("net.minecraft.server." + version + ".Packet"));
+                        sendPacketMethod.invoke(playerConnection, packet);
+                        
+                        // 恢复原来的物品
+                        setItemInHandMethod.invoke(entityPlayer, mainHand, originalItem);
+                        
+                        packetSent = true;
+                    } catch (Exception e1) {
+                        // 尝试旧版本方法 (1.9 - 1.13)
+                        try {
+                            Constructor<?> packetCtor = packetPlayOutOpenBookClass.getConstructor();
+                            Object packet = packetCtor.newInstance();
+                            
+                            // 发送数据包前需要临时设置玩家手持物品为书本
+                            ItemStack oldItem = player.getItemInHand();
+                            player.setItemInHand(book);
+                            
+                            // 发送数据包
+                            Class<?> playerConnectionClass = Class.forName("net.minecraft.server." + version + ".PlayerConnection");
+                            Field playerConnectionField = entityPlayer.getClass().getField("playerConnection");
+                            Object playerConnection = playerConnectionField.get(entityPlayer);
+                            Method sendPacketMethod = playerConnectionClass.getMethod("sendPacket", Class.forName("net.minecraft.server." + version + ".Packet"));
+                            sendPacketMethod.invoke(playerConnection, packet);
+                            
+                            // 恢复原来的物品
+                            Bukkit.getScheduler().runTaskLater(
+                                RMCMaterialLoadingPlugin.getInstance(),
+                                () -> {
+                                    player.setItemInHand(oldItem);
+                                    player.updateInventory();
+                                },
+                                1L
+                            );
+                            
+                            packetSent = true;
+                        } catch (Exception e2) {
+                            // 尝试直接使用openBook方法
+                            try {
+                                Method openBookMethod = craftPlayerClass.getMethod("openBook", ItemStack.class);
+                                openBookMethod.invoke(craftPlayer, book);
+                                packetSent = true;
+                            } catch (Exception e3) {
+                                try {
+                                    Method openBookMethod = craftPlayerClass.getDeclaredMethod("openBook", ItemStack.class);
+                                    openBookMethod.setAccessible(true);
+                                    openBookMethod.invoke(craftPlayer, book);
+                                    packetSent = true;
+                                } catch (Exception e4) {
+                                    // 所有方法都失败了
+                                    e4.printStackTrace();
+                                }
+                            }
+                        }
+                    }
+                    
+                    return packetSent;
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
     // 获取NMS版本
     private static String getVersion() {
         String packageName = Bukkit.getServer().getClass().getPackage().getName();
