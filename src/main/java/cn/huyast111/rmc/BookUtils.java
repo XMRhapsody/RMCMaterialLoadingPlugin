@@ -125,20 +125,41 @@ public class BookUtils {
             Class<?> craftPlayerClass = Class.forName("org.bukkit.craftbukkit." + version + ".entity.CraftPlayer");
             Object craftPlayer = craftPlayerClass.cast(player);
             
+            boolean bookOpened = false;
+            
             // 尝试调用openBook方法
             try {
                 Method openBook = craftPlayerClass.getMethod("openBook", ItemStack.class);
                 openBook.invoke(craftPlayer, book);
+                bookOpened = true;
             } catch (NoSuchMethodException e) {
                 // 可能是其他方法名
                 try {
                     Method openBook = craftPlayerClass.getDeclaredMethod("openBook", ItemStack.class);
                     openBook.setAccessible(true);
                     openBook.invoke(craftPlayer, book);
+                    bookOpened = true;
                 } catch (Exception ex) {
                     // 通知玩家手动打开书本
                     player.sendMessage(ChatColor.YELLOW + "请右键打开书本选择是否加载材质包");
                 }
+            }
+            
+            // 恢复玩家原来的物品
+            if (bookOpened) {
+                // 延迟一下再恢复物品，确保书本能正常打开
+                Bukkit.getScheduler().runTaskLater(
+                    RMCMaterialLoadingPlugin.getInstance(), 
+                    () -> {
+                        player.setItemInHand(oldItem);
+                        player.updateInventory();
+                    }, 
+                    2L
+                );
+            } else {
+                // 如果书本没有成功打开，直接恢复
+                player.setItemInHand(oldItem);
+                player.updateInventory();
             }
         } catch (Exception e) {
             e.printStackTrace();

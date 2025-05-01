@@ -40,9 +40,20 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
     private String nmsVersion;
     // 记录玩家的材质包加载状态
     private final Map<UUID, Boolean> playerResourcePackStatus = new HashMap<>();
+    
+    // 插件实例的静态引用
+    private static RMCMaterialLoadingPlugin instance;
+    
+    // 获取插件实例的静态方法
+    public static RMCMaterialLoadingPlugin getInstance() {
+        return instance;
+    }
 
     @Override
     public void onEnable() {
+        // 保存实例引用
+        instance = this;
+        
         // 获取NMS版本
         nmsVersion = getVersion();
         
@@ -73,6 +84,8 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
 
     @Override
     public void onDisable() {
+        // 清理静态实例引用
+        instance = null;
         getLogger().info("材质包加载插件已禁用！-Powered By XMRhapsody");
     }
 
@@ -81,6 +94,8 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
         for (Player player : Bukkit.getOnlinePlayers()) {
             // 如果玩家还没有被提示过材质包，尝试提示
             if (!resourcePackPrompted.containsKey(player.getUniqueId()) || !resourcePackPrompted.get(player.getUniqueId())) {
+                // 先清除可能存在的所有书本
+                clearAllBooks(player);
                 checkAndPromptResourcePack(player);
             }
         }
@@ -93,25 +108,12 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
         // 重置玩家状态
         resourcePackPrompted.put(player.getUniqueId(), false);
         
-        // 延迟检查，等待玩家完全加载进服务器
-        // 使用多个延迟时间点进行尝试，确保能够触发提示
+        // 使用单一延迟任务，避免多次触发
         Bukkit.getScheduler().runTaskLater(this, () -> {
             if (!resourcePackPrompted.getOrDefault(player.getUniqueId(), false)) {
                 checkAndPromptResourcePack(player);
             }
-        }, 20L); // 1秒后尝试
-        
-        Bukkit.getScheduler().runTaskLater(this, () -> {
-            if (!resourcePackPrompted.getOrDefault(player.getUniqueId(), false)) {
-                checkAndPromptResourcePack(player);
-            }
-        }, 60L); // 3秒后再次尝试
-        
-        Bukkit.getScheduler().runTaskLater(this, () -> {
-            if (!resourcePackPrompted.getOrDefault(player.getUniqueId(), false)) {
-                checkAndPromptResourcePack(player);
-            }
-        }, 200L); // 10秒后最后尝试
+        }, 60L); // 3秒后尝试
     }
     
     // 玩家重生事件，用于捕获玩家从死亡状态回来的时刻
@@ -124,7 +126,7 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
             if (!resourcePackPrompted.getOrDefault(player.getUniqueId(), false)) {
                 checkAndPromptResourcePack(player);
             }
-        }, 20L);
+        }, 40L); // 2秒后尝试
     }
     
     // 玩家切换世界事件，用于捕获玩家切换世界的时刻
@@ -137,7 +139,7 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
             if (!resourcePackPrompted.getOrDefault(player.getUniqueId(), false)) {
                 checkAndPromptResourcePack(player);
             }
-        }, 20L);
+        }, 40L); // 2秒后尝试
     }
     
     // 玩家退出时清理数据
@@ -302,6 +304,8 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
             }
             
             resourcePackPrompted.put(target.getUniqueId(), false);
+            // 先清除可能存在的所有书本
+            clearAllBooks(target);
             checkAndPromptResourcePack(target);
             sender.sendMessage(ChatColor.GREEN + "材质包提示已发送给 " + target.getName());
             return true;
@@ -316,6 +320,9 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
             return;
         }
         
+        // 先清除可能存在的所有书本
+        clearAllBooks(player);
+        
         // 标记已经提示过
         resourcePackPrompted.put(player.getUniqueId(), true);
         
@@ -325,14 +332,20 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
     
     private void giveClickableBook(Player player) {
         try {
-            // 先清除之前可能存在的书本
-            clearExistingBooks(player);
+            // 先清除玩家背包中所有书本
+            clearAllBooks(player);
             
             // 使用工具类创建带点击功能的书本
             ItemStack book = BookUtils.createClickableBook(player);
             
-            // 将书本放在第5格
-            player.getInventory().setItem(4, book);
+            // 确保第7格（索引6）是空的
+            player.getInventory().setItem(6, null);
+            
+            // 将书本放在第7格（索引6）
+            player.getInventory().setItem(6, book);
+            
+            // 更新玩家物品栏
+            player.updateInventory();
             
             // 使用工具类打开书本
             BookUtils.openBook(player, book);
@@ -352,8 +365,13 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
         }
     }
     
-    // 清除玩家背包中已有的材质包书本
-    private void clearExistingBooks(Player player) {
+    // 彻底清除玩家背包中所有可能的材质包书本
+    private void clearAllBooks(Player player) {
+        // 先清除第5格和第7格
+        player.getInventory().setItem(4, null);
+        player.getInventory().setItem(6, null);
+        
+        // 然后检查整个物品栏
         for (int i = 0; i < player.getInventory().getSize(); i++) {
             ItemStack item = player.getInventory().getItem(i);
             if (item != null && item.getType() == Material.WRITTEN_BOOK) {
@@ -363,6 +381,14 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
                 }
             }
         }
+        
+        // 更新玩家物品栏
+        player.updateInventory();
+    }
+    
+    // 原来的clearExistingBooks方法保留作为兼容
+    private void clearExistingBooks(Player player) {
+        clearAllBooks(player);
     }
     
     private void registerPackCommands(Player player) {
