@@ -192,6 +192,8 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
             case ACCEPTED:
                 // 玩家接受了材质包，但尚未完成加载
                 player.sendMessage(ChatColor.GOLD + "正在下载材质包...");
+                // 设置材质包状态为"加载中"
+                setPlayerResourcePackLoaded(player, null);
                 
                 // 添加下载检查任务
                 Bukkit.getScheduler().runTaskLater(this, () -> {
@@ -210,12 +212,23 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
         }
     }
     
-    private void setPlayerResourcePackLoaded(Player player, boolean loaded) {
+    /**
+     * 设置玩家的材质包加载状态
+     * @param player 玩家
+     * @param loaded 是否已加载（true=已加载，false=未加载/拒绝，null=加载中）
+     */
+    private void setPlayerResourcePackLoaded(Player player, Boolean loaded) {
         playerResourcePackStatus.put(player.getUniqueId(), loaded);
     }
     
+    /**
+     * 检查玩家是否已加载材质包
+     * @param player 玩家
+     * @return 是否已加载
+     */
     private boolean hasPlayerLoadedResourcePack(Player player) {
-        return playerResourcePackStatus.getOrDefault(player.getUniqueId(), false);
+        Boolean status = playerResourcePackStatus.get(player.getUniqueId());
+        return status != null && status; // 只有明确为true才表示已加载
     }
     
     @Override
@@ -414,8 +427,17 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
      */
     public void sendResourcePack(Player player) {
         try {
-            // 重置玩家材质包状态
-            setPlayerResourcePackLoaded(player, false);
+            // 检查是否已经在加载中，避免重复发送
+            UUID playerId = player.getUniqueId();
+            if (playerResourcePackStatus.containsKey(playerId) && 
+                playerResourcePackStatus.get(playerId) == null) { // null表示正在加载中
+                // 已经在加载中，不再重复发送
+                player.sendMessage(ChatColor.YELLOW + "材质包正在加载中，请耐心等待...");
+                return;
+            }
+            
+            // 标记为正在加载中
+            playerResourcePackStatus.put(playerId, null);
             
             // 添加随机参数强制更新材质包
             String url = addForceUpdateParam(resourcePackUrl);
@@ -439,12 +461,19 @@ public class RMCMaterialLoadingPlugin extends JavaPlugin implements Listener, Co
                     player.sendMessage(ChatColor.YELLOW + "1. 输入 /czb forcereload 重新加载");
                     player.sendMessage(ChatColor.YELLOW + "2. 重新进入服务器");
                     player.sendMessage(ChatColor.YELLOW + "3. 在设置中禁用再重新启用服务器资源包");
+                    
+                    // 重置状态，允许再次尝试
+                    if (playerResourcePackStatus.get(playerId) == null) {
+                        playerResourcePackStatus.put(playerId, false);
+                    }
                 }
             }, 600L); // 30秒后检查
             
         } catch (Exception e) {
             player.sendMessage(ChatColor.RED + "材质包发送失败：" + e.getMessage());
             getLogger().warning("材质包发送失败：" + e.getMessage());
+            // 重置状态，允许再次尝试
+            playerResourcePackStatus.put(player.getUniqueId(), false);
         }
     }
     

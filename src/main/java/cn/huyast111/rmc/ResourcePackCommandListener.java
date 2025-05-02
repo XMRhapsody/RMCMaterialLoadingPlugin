@@ -63,17 +63,24 @@ public class ResourcePackCommandListener implements Listener {
         
         if (command.startsWith("/loadpack")) {
             event.setCancelled(true);
-            plugin.setPlayerMadeChoice(player.getUniqueId(), true);
-            plugin.sendResourcePack(player);
+            // 立即标记为已处理，避免后续任何检查和重新打开
             processed = true;
+            // 立即注销所有监听器，避免再次触发任何事件
             HandlerList.unregisterAll(this);
+            // 然后设置玩家已做出选择
+            plugin.setPlayerMadeChoice(player.getUniqueId(), true);
+            // 最后发送材质包请求
+            plugin.sendResourcePack(player);
         } else if (command.startsWith("/declinepack")) {
             event.setCancelled(true);
+            // 立即标记为已处理，避免后续任何检查和重新打开
+            processed = true;
+            // 立即注销所有监听器，避免再次触发任何事件
+            HandlerList.unregisterAll(this);
+            // 然后设置玩家已做出选择
             plugin.setPlayerMadeChoice(player.getUniqueId(), true);
             player.sendMessage("§c您已选择暂不加载材质包，部分功能可能无法正常显示。");
             player.sendMessage("§e如果您改变主意，请使用 §b/czb reload §e命令加载材质包。");
-            processed = true;
-            HandlerList.unregisterAll(this);
         }
     }
     
